@@ -14,6 +14,7 @@ from typing import Optional
 
 from ..data.sources.yahoo_finance import YahooFinanceSource
 from .commands.forecast_cmd import ForecastCommand
+from .commands.sentiment_cmd import SentimentCommand
 from ..data.preprocessor import DataPreprocessor
 from ..data.feature_engineering import FeatureEngineer
 from ..core.cache_manager import get_cache_manager
@@ -33,6 +34,7 @@ class CLIMenu:
         self.feature_engineer = FeatureEngineer()
         self.cache_manager = get_cache_manager()
         self.forecast_cmd = ForecastCommand(self.console)
+        self.sentiment_cmd = SentimentCommand(self.console)
 
         logger.info("CLI Menu initialized")
 
@@ -63,7 +65,7 @@ class CLIMenu:
 
         menu_options = [
             ("1", "Fetch Market Data", "Download and cache stock data"),
-            ("2", "Sentiment Analysis", "[dim](Coming in Phase 3)[/dim]"),
+            ("2", "Sentiment Analysis", "Analyze news, filings, and social sentiment"),
             ("3", "Regime Detection", "[dim](Coming in Phase 4)[/dim]"),
             ("4", "Generate Forecast", "AI-powered price forecasting"),
             ("5", "Run Backtest", "[dim](Coming in Phase 5)[/dim]"),
@@ -255,7 +257,7 @@ class CLIMenu:
                 elif choice == "1":
                     self.fetch_market_data_menu()
                 elif choice == "2":
-                    self.console.print("\n[yellow]Sentiment Analysis coming in Phase 3[/yellow]")
+                    self.sentiment_cmd.run_sentiment_menu()
                 elif choice == "3":
                     self.console.print("\n[yellow]Regime Detection coming in Phase 4[/yellow]")
                 elif choice == "4":
