@@ -5,6 +5,7 @@ News collection from multiple sources for sentiment analysis.
 import requests
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
+from urllib.parse import quote_plus
 from loguru import logger
 import feedparser
 import os
@@ -105,7 +106,9 @@ class NewsCollector:
 
         # Google News RSS
         try:
-            url = f"https://news.google.com/rss/search?q={search_term}+stock&hl=en-US&gl=US&ceid=US:en"
+            # URL encode the search term to handle spaces and special characters
+            encoded_search = quote_plus(f"{search_term} stock")
+            url = f"https://news.google.com/rss/search?q={encoded_search}&hl=en-US&gl=US&ceid=US:en"
             feed = feedparser.parse(url)
 
             for entry in feed.entries[:20]:  # Limit to 20 per source

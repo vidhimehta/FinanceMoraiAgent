@@ -244,7 +244,11 @@ class SentimentAnalyzer:
 
         # Normalize weights
         total_weight = sum(weights)
-        weights = [w / total_weight for w in weights]
+        if total_weight == 0:
+            # All weights are zero, use equal weights
+            weights = [1.0 / len(sentiments)] * len(sentiments)
+        else:
+            weights = [w / total_weight for w in weights]
 
         # Calculate weighted average
         compounds = [s["compound"] for s in sentiments]
