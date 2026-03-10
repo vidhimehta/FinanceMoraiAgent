@@ -1,0 +1,219 @@
+# FinanceMoraiAgent Configuration
+
+# Data Sources
+data_sources:
+  yahoo_finance:
+    enabled: true
+    timeout: 30
+    retry_attempts: 3
+    retry_delay: 2
+
+  news_api:
+    enabled: true
+    max_articles: 50
+    sources: "bloomberg,reuters,financial-times,wsj"
+    language: "en"
+
+  sec_edgar:
+    enabled: true
+    filing_types: ["10-K", "10-Q", "8-K"]
+    base_url: "https://www.sec.gov/cgi-bin/browse-edgar"
+
+  sebi:
+    enabled: true
+    base_url: "https://www.nseindia.com"
+
+  social_media:
+    reddit:
+      enabled: false
+      subreddits: ["wallstreetbets", "stocks", "investing"]
+      limit: 100
+    twitter:
+      enabled: false
+
+# Moirai Model Configuration
+moirai:
+  model_id: "Salesforce/moirai-1.0-R-small"  # Options: small, base, large
+  device: "auto"  # auto, cpu, cuda, mps
+  cache_dir: "storage/models"
+  batch_size: 32
+  max_length: 512
+  forecast_horizons: [7, 14, 30]  # days
+  confidence_intervals: [0.1, 0.9]  # 80% CI
+
+  # Context integration
+  context:
+    max_length: 256
+    include_sentiment: true
+    include_regime: true
+    include_events: true
+
+# Sentiment Analysis
+sentiment:
+  models:
+    finbert:
+      enabled: true
+      model_id: "ProsusAI/finbert"
+      device: "auto"
+      batch_size: 16
+
+    vader:
+      enabled: true
+      fallback: true
+
+  aggregation:
+    weights:
+      news: 0.4
+      sec_filings: 0.3
+      social_media: 0.2
+      manual_text: 0.1
+
+    time_decay:
+      enabled: true
+      half_life_days: 7
+
+    confidence_threshold: 0.5
+
+# Regime Detection
+regime:
+  methods:
+    volatility:
+      enabled: true
+      window: 20
+      threshold_low: 0.01
+      threshold_high: 0.03
+      use_garch: true
+
+    trend:
+      enabled: true
+      adx_period: 14
+      adx_threshold: 25
+      ma_periods: [50, 200]
+
+    hmm:
+      enabled: true
+      n_states: 3
+      n_iter: 100
+      covariance_type: "full"
+
+    context_driven:
+      enabled: true
+      uncertainty_threshold: 0.15
+
+  ensemble:
+    method: "weighted_vote"  # weighted_vote, majority, consensus
+    weights:
+      volatility: 0.3
+      trend: 0.3
+      hmm: 0.2
+      context_driven: 0.2
+
+# Backtesting
+backtesting:
+  execution:
+    slippage_pct: 0.001  # 0.1%
+    commission_pct: 0.001  # 0.1%
+    commission_min: 1.0
+
+  portfolio:
+    initial_capital: 100000
+    max_position_size: 0.2  # 20% of portfolio
+    risk_free_rate: 0.04  # 4% annual
+
+  strategies:
+    signal_based:
+      forecast_threshold: 0.02  # 2% expected return
+      stop_loss: 0.05  # 5%
+      take_profit: 0.10  # 10%
+
+    mean_reversion:
+      lookback_period: 20
+      entry_std: 2.0
+      exit_std: 0.5
+
+    regime_adaptive:
+      bull_position_size: 0.20
+      normal_position_size: 0.10
+      bear_position_size: 0.05
+
+# Technical Indicators
+technical_indicators:
+  price_ma:
+    periods: [20, 50, 200]
+
+  momentum:
+    rsi_period: 14
+    macd_fast: 12
+    macd_slow: 26
+    macd_signal: 9
+
+  volatility:
+    atr_period: 14
+    bbands_period: 20
+    bbands_std: 2
+
+  volume:
+    obv: true
+    volume_sma: 20
+
+# Caching
+cache:
+  enabled: true
+  memory_size_mb: 512
+  disk_size_gb: 10
+
+  ttl:
+    ohlcv_data: 3600  # 1 hour
+    news: 1800  # 30 minutes
+    sentiment: 7200  # 2 hours
+    regime: 3600  # 1 hour
+    forecast: 1800  # 30 minutes
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+  rotation: "100 MB"
+  retention: "30 days"
+
+  destinations:
+    console: true
+    file: true
+    file_path: "storage/app.log"
+
+# CLI Settings
+cli:
+  theme: "default"  # default, dark, light
+  show_progress: true
+  export_formats: ["csv", "json", "excel", "html"]
+
+  visualization:
+    terminal_plots: true
+    plot_height: 20
+    color_scheme: "default"
+
+# Market Settings
+markets:
+  us:
+    exchanges: ["NYSE", "NASDAQ"]
+    trading_hours:
+      start: "09:30"
+      end: "16:00"
+      timezone: "America/New_York"
+
+  india:
+    exchanges: ["NSE", "BSE"]
+    ticker_suffixes:
+      nse: ".NS"
+      bse: ".BO"
+    trading_hours:
+      start: "09:15"
+      end: "15:30"
+      timezone: "Asia/Kolkata"
+
+# Performance
+performance:
+  parallel_processing: true
+  max_workers: 4
+  chunk_size: 100
+  use_gpu_if_available: true
