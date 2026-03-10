@@ -152,6 +152,10 @@ class CLIMenu:
         """Display data summary table."""
         self.console.print(f"\n[bold green]✓[/bold green] Successfully fetched {len(df)} rows")
 
+        # Detect currency based on ticker
+        _, market = normalize_ticker(ticker)
+        currency = "INR" if market in ["NSE", "BSE"] else "USD"
+
         # Create summary table
         table = Table(title=f"Data Summary: {ticker}", box=box.ROUNDED)
         table.add_column("Metric", style="cyan")
@@ -168,10 +172,10 @@ class CLIMenu:
             price_change = df["Close"].iloc[-1] - df["Close"].iloc[0]
             price_change_pct = (price_change / df["Close"].iloc[0]) * 100
 
-            table.add_row("Latest Price", format_currency(latest_price, "USD"))
-            table.add_row("Price Change", f"{format_currency(price_change, 'USD')} ({price_change_pct:+.2f}%)")
-            table.add_row("Highest Price", format_currency(df["Close"].max(), "USD"))
-            table.add_row("Lowest Price", format_currency(df["Close"].min(), "USD"))
+            table.add_row("Latest Price", format_currency(latest_price, currency))
+            table.add_row("Price Change", f"{format_currency(price_change, currency)} ({price_change_pct:+.2f}%)")
+            table.add_row("Highest Price", format_currency(df["Close"].max(), currency))
+            table.add_row("Lowest Price", format_currency(df["Close"].min(), currency))
 
         # Volume stats
         if "Volume" in df.columns:
