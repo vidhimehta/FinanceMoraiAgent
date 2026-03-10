@@ -11,7 +11,7 @@ from datetime import datetime
 from loguru import logger
 
 from ...core.data_pipeline import DataPipeline
-from ...utils.helpers import format_currency, format_percentage
+from ...utils.helpers import format_currency, format_percentage, normalize_ticker
 
 
 class ForecastCommand:
@@ -29,6 +29,22 @@ class ForecastCommand:
         self.console = console
         self.pipeline = DataPipeline()
         logger.info("ForecastCommand initialized")
+
+    def _get_currency_for_ticker(self, ticker: str) -> str:
+        """
+        Determine currency based on ticker.
+
+        Args:
+            ticker: Stock ticker symbol
+
+        Returns:
+            Currency code (USD, INR, etc.)
+        """
+        _, market = normalize_ticker(ticker)
+        if market in ["NSE", "BSE"]:
+            return "INR"
+        else:
+            return "USD"
 
     def run_forecast_menu(self):
         """Display forecast generation menu."""
@@ -114,92 +130,101 @@ class ForecastCommand:
         """
         self.console.print(f"\n[bold green]✓[/bold green] Forecast generated successfully!")
 
+        # Detect currency based on ticker
+        currency = self._get_currency_for_ticker(result['ticker'])
+
         # Summary table
         horizon = result['horizon']
         if horizon == 1:
             title = f"Tomorrow's Prediction: {result['ticker']}"
         else:
             title = f"Forecast Summary: {result['ticker']}"
-            
+
         table = Table(title=title, box=box.ROUNDED)
         table.add_column("Metric", style="cyan")
         table.add_column("Value", style="yellow")
 
         stats = result["statistics"]
         table.add_row("Method", result["method"].replace("_", " ").title())
-        
+
         if horizon == 1:
             table.add_row("Horizon", "Tomorrow")
         else:
             table.add_row("Horizon", f"{horizon} days")
-            
+
         table.add_row("Confidence Level", f"{result['confidence_level']*100:.0f}%")
         table.add_row("", "")  # Spacer
-        table.add_row("Current Price", format_currency(stats["last_price"], "USD"))
-        
+        table.add_row("Current Price", format_currency(stats["last_price"], currency))
+
         if horizon == 1:
-            table.add_row("Tomorrow's Price", format_currency(stats["forecast_final"], "USD"))
+            table.add_row("Tomorrow's Price", format_currency(stats["forecast_final"], currency))
         else:
-            table.add_row("Forecast (Final)", format_currency(stats["forecast_final"], "USD"))
-            
+            table.add_row("Forecast (Final)", format_currency(stats["forecast_final"], currency))
+
         table.add_row("Expected Return", format_percentage(stats["expected_return"]))
-        
+
         if horizon > 1:
-            table.add_row("Min Forecast", format_currency(stats["min_forecast"], "USD"))
-            table.add_row("Max Forecast", format_currency(stats["max_forecast"], "USD"))
+            table.add_row("Min Forecast", format_currency(stats["min_forecast"], currency))
+            table.add_row("Max Forecast", format_currency(stats["max_forecast"], currency))
 
         self.console.print(table)
 
         # Show forecast details
         if horizon == 1:
-            self._display_tomorrow_detail(result)
+            self._display_tomorrow_detail(result, currency)
         else:
-            self._display_multi_day_preview(result)
+            self._display_multi_day_preview(result, currency)
 
-    def _display_tomorrow_detail(self, result: dict):
-        """Display detailed prediction for tomorrow."""
+    def _display_tomorrow_detail(self, result: dict, currency: str = "USD"):
+        """Display detailed prediction for tomorrow.
+
+        Args:
+            result: Forecast result dictionary
+            currency: Currency code (USD, INR, etc.)
+        """
         self.console.print("\n[bold]Tomorrow's Prediction Detail:[/bold]")
-        
+
         forecast = result["forecast"][0]
         lower = result["lower_bound"][0]
         upper = result["upper_bound"][0]
         date = result["dates"][0]
-        
+
         detail_table = Table(box=box.SIMPLE)
         detail_table.add_column("Date", style="cyan")
         detail_table.add_column("Expected Price", style="yellow")
         detail_table.add_column("Best Case", style="green")
         detail_table.add_column("Worst Case", style="red")
-        
+
         detail_table.add_row(
             str(date.date()),
-            f"${forecast:.2f}",
-            f"${upper:.2f}",
-            f"${lower:.2f}",
+            format_currency(forecast, currency),
+            format_currency(upper, currency),
+            format_currency(lower, currency),
         )
-        
+
         self.console.print(detail_table)
-        
+
         # Add interpretation
         current = result["statistics"]["last_price"]
         change = forecast - current
         change_pct = (change / current) * 100
-        
+
         self.console.print("\n[bold]What This Means:[/bold]")
+        change_str = format_currency(abs(change), currency)
         if change > 0:
-            self.console.print(f"  📈 [green]Expected to go UP by ${abs(change):.2f} ({abs(change_pct):.2f}%)[/green]")
+            self.console.print(f"  📈 [green]Expected to go UP by {change_str} ({abs(change_pct):.2f}%)[/green]")
         elif change < 0:
-            self.console.print(f"  📉 [red]Expected to go DOWN by ${abs(change):.2f} ({abs(change_pct):.2f}%)[/red]")
+            self.console.print(f"  📉 [red]Expected to go DOWN by {change_str} ({abs(change_pct):.2f}%)[/red]")
         else:
             self.console.print(f"  ➡️  [yellow]Expected to stay relatively FLAT[/yellow]")
-            
+
         range_width = upper - lower
         volatility_pct = (range_width / current) * 100
-        
+
         self.console.print(f"\n[bold]Uncertainty Range:[/bold]")
-        self.console.print(f"  Range: ${lower:.2f} to ${upper:.2f}")
-        self.console.print(f"  Spread: ${range_width:.2f} ({volatility_pct:.1f}% volatility)")
-        
+        self.console.print(f"  Range: {format_currency(lower, currency)} to {format_currency(upper, currency)}")
+        self.console.print(f"  Spread: {format_currency(range_width, currency)} ({volatility_pct:.1f}% volatility)")
+
         if volatility_pct < 2:
             self.console.print("  ✓ [green]Low volatility - fairly predictable[/green]")
         elif volatility_pct < 5:
@@ -207,8 +232,13 @@ class ForecastCommand:
         else:
             self.console.print("  ⚠️  [red]High volatility - significant uncertainty[/red]")
 
-    def _display_multi_day_preview(self, result: dict):
-        """Display preview for multi-day forecasts."""
+    def _display_multi_day_preview(self, result: dict, currency: str = "USD"):
+        """Display preview for multi-day forecasts.
+
+        Args:
+            result: Forecast result dictionary
+            currency: Currency code (USD, INR, etc.)
+        """
         self.console.print("\n[bold]Forecast Preview:[/bold]")
         forecast_table = Table(box=box.SIMPLE)
         forecast_table.add_column("Date", style="cyan")
@@ -232,9 +262,9 @@ class ForecastCommand:
                 forecast_table.add_row("...", "...", "...", "...")
             forecast_table.add_row(
                 str(dates[i].date()),
-                f"${forecast[i]:.2f}",
-                f"${lower[i]:.2f}",
-                f"${upper[i]:.2f}",
+                format_currency(forecast[i], currency),
+                format_currency(lower[i], currency),
+                format_currency(upper[i], currency),
             )
 
         self.console.print(forecast_table)
