@@ -1,5 +1,5 @@
 """
-Yahoo Finance data source wrapper.
+Yahoo Finance data source wrapper with rate limit handling.
 """
 
 from datetime import datetime, timedelta
@@ -7,6 +7,7 @@ from typing import Optional, Union
 import pandas as pd
 import yfinance as yf
 from loguru import logger
+import time
 
 from ...utils.exceptions import DataSourceException
 from ...utils.validators import validate_ticker, validate_date_range, validate_ohlcv_data
@@ -24,6 +25,7 @@ class YahooFinanceSource:
         cache_ttl: int = 3600,
         timeout: int = 30,
         retry_attempts: int = 3,
+        retry_delay: int = 5,
     ):
         """
         Initialize Yahoo Finance source.
@@ -33,14 +35,31 @@ class YahooFinanceSource:
             cache_ttl: Cache time-to-live in seconds
             timeout: Request timeout in seconds
             retry_attempts: Number of retry attempts on failure
+            retry_delay: Delay between retries in seconds
         """
         self.use_cache = use_cache
         self.cache_ttl = cache_ttl
         self.timeout = timeout
         self.retry_attempts = retry_attempts
+        self.retry_delay = retry_delay
         self.cache_manager = get_cache_manager() if use_cache else None
 
         logger.info("Yahoo Finance source initialized")
+
+    def _flatten_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Flatten multi-index columns from yfinance.
+        
+        Args:
+            df: DataFrame with potentially multi-index columns
+            
+        Returns:
+            DataFrame with flattened columns
+        """
+        if isinstance(df.columns, pd.MultiIndex):
+            # New yfinance format: (Price, Ticker) -> Price
+            df.columns = df.columns.get_level_values(0)
+        return df
 
     def fetch_ohlcv(
         self,
@@ -87,7 +106,7 @@ class YahooFinanceSource:
                     self.cache_manager.set(cache_key, filtered_data, expire=self.cache_ttl)
                     return filtered_data
 
-        # Fetch from Yahoo Finance with retries
+        # Fetch from Yahoo Finance with retries and rate limit handling
         for attempt in range(self.retry_attempts):
             try:
                 logger.info(
@@ -95,18 +114,35 @@ class YahooFinanceSource:
                     f"({start.date()} to {end.date()}, attempt {attempt + 1})"
                 )
 
-                ticker_obj = yf.Ticker(ticker)
-                df = ticker_obj.history(
+                # Add delay to avoid rate limiting
+                if attempt > 0:
+                    delay = self.retry_delay * attempt
+                    logger.info(f"Waiting {delay} seconds before retry...")
+                    time.sleep(delay)
+
+                # Use yfinance download which is more reliable
+                df = yf.download(
+                    ticker,
                     start=start,
                     end=end,
                     interval=interval,
+                    progress=False,
                     timeout=self.timeout,
                 )
 
+                # Flatten multi-index columns (new yfinance format)
+                df = self._flatten_columns(df)
+
                 if df.empty:
+                    # Try alternative: check if market is open/weekend
+                    if end.date() == datetime.now().date() and datetime.now().weekday() >= 5:
+                        raise DataSourceException(
+                            f"No data returned for {ticker}. "
+                            "Market might be closed (weekend/holiday). Try a date range ending on a weekday."
+                        )
                     raise DataSourceException(
                         f"No data returned for {ticker}. "
-                        "Check if ticker is valid and market is open."
+                        "Check if ticker is valid and date range is reasonable."
                     )
 
                 # Validate data
@@ -121,7 +157,21 @@ class YahooFinanceSource:
                 logger.info(f"Successfully fetched {len(df)} rows for {ticker}")
                 return df
 
+            except DataSourceException:
+                # Re-raise our custom exceptions
+                raise
             except Exception as e:
+                error_msg = str(e).lower()
+                
+                # Check for rate limiting
+                if "429" in error_msg or "too many requests" in error_msg:
+                    logger.warning(
+                        f"Rate limited by Yahoo Finance (attempt {attempt + 1}). "
+                        f"Waiting {self.retry_delay * 2} seconds..."
+                    )
+                    time.sleep(self.retry_delay * 2)
+                    continue
+                
                 logger.warning(
                     f"Attempt {attempt + 1} failed for {ticker}: {e}"
                 )
@@ -153,6 +203,9 @@ class YahooFinanceSource:
                 return cached_info
 
         try:
+            # Add small delay to avoid rate limiting
+            time.sleep(1)
+            
             ticker_obj = yf.Ticker(ticker)
             info = ticker_obj.info
 
@@ -168,108 +221,6 @@ class YahooFinanceSource:
 
         except Exception as e:
             raise DataSourceException(f"Failed to fetch info for {ticker}: {e}")
-
-    def fetch_dividends(
-        self,
-        ticker: str,
-        start_date: Optional[Union[str, datetime]] = None,
-    ) -> pd.Series:
-        """
-        Fetch dividend history.
-
-        Args:
-            ticker: Stock ticker symbol
-            start_date: Start date (optional)
-
-        Returns:
-            Series with dividend data
-
-        Raises:
-            DataSourceException: If data fetching fails
-        """
-        ticker = validate_ticker(ticker)
-
-        try:
-            ticker_obj = yf.Ticker(ticker)
-            dividends = ticker_obj.dividends
-
-            if start_date:
-                start = validate_date_range(start_date, datetime.now())[0]
-                dividends = dividends[dividends.index >= start]
-
-            logger.info(f"Fetched {len(dividends)} dividend records for {ticker}")
-            return dividends
-
-        except Exception as e:
-            raise DataSourceException(f"Failed to fetch dividends for {ticker}: {e}")
-
-    def fetch_splits(
-        self,
-        ticker: str,
-        start_date: Optional[Union[str, datetime]] = None,
-    ) -> pd.Series:
-        """
-        Fetch stock split history.
-
-        Args:
-            ticker: Stock ticker symbol
-            start_date: Start date (optional)
-
-        Returns:
-            Series with split data
-
-        Raises:
-            DataSourceException: If data fetching fails
-        """
-        ticker = validate_ticker(ticker)
-
-        try:
-            ticker_obj = yf.Ticker(ticker)
-            splits = ticker_obj.splits
-
-            if start_date:
-                start = validate_date_range(start_date, datetime.now())[0]
-                splits = splits[splits.index >= start]
-
-            logger.info(f"Fetched {len(splits)} split records for {ticker}")
-            return splits
-
-        except Exception as e:
-            raise DataSourceException(f"Failed to fetch splits for {ticker}: {e}")
-
-    def search_ticker(self, query: str) -> list[dict]:
-        """
-        Search for tickers by company name or symbol.
-
-        Args:
-            query: Search query
-
-        Returns:
-            List of matching tickers with info
-
-        Raises:
-            DataSourceException: If search fails
-        """
-        try:
-            # Use yfinance Ticker to search
-            # Note: yfinance doesn't have a built-in search, so we'll try the query as a ticker
-            ticker_obj = yf.Ticker(query.upper())
-            info = ticker_obj.info
-
-            if info and info.get("symbol"):
-                return [
-                    {
-                        "symbol": info.get("symbol"),
-                        "name": info.get("longName") or info.get("shortName"),
-                        "exchange": info.get("exchange"),
-                        "sector": info.get("sector"),
-                    }
-                ]
-            return []
-
-        except Exception as e:
-            logger.warning(f"Search failed for '{query}': {e}")
-            return []
 
     def get_latest_price(self, ticker: str) -> float:
         """
@@ -303,33 +254,3 @@ class YahooFinanceSource:
             raise DataSourceException(
                 f"Failed to get latest price for {ticker}: {e}"
             )
-
-    def is_market_open(self, exchange: str = "US") -> bool:
-        """
-        Check if market is currently open (approximate).
-
-        Args:
-            exchange: Market exchange (US, NSE, BSE)
-
-        Returns:
-            True if market is likely open
-        """
-        now = datetime.now()
-        day_of_week = now.weekday()  # 0=Monday, 6=Sunday
-
-        # Weekend check
-        if day_of_week >= 5:  # Saturday or Sunday
-            return False
-
-        # Simple time check (not perfect, doesn't account for holidays)
-        hour = now.hour
-
-        if exchange == "US":
-            # NYSE: 9:30 AM - 4:00 PM ET (approximate)
-            return 9 <= hour < 16
-        elif exchange in ["NSE", "BSE"]:
-            # Indian markets: 9:15 AM - 3:30 PM IST
-            return 9 <= hour < 16
-        else:
-            # Default to always open for other exchanges
-            return True
