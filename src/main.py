@@ -11,9 +11,9 @@ from loguru import logger
 # Add src directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from cli.menu import CLIMenu
-from utils.logger import setup_logger
-from utils.helpers import load_config, get_project_root
+from src.cli.menu import CLIMenu
+from src.utils.logger import setup_logger
+from src.utils.helpers import load_config, get_project_root
 
 
 def main():

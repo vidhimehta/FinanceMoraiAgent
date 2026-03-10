@@ -21,14 +21,14 @@ You should see `(venv)` in your terminal prompt.
 ### Step 3: Run the application
 
 ```bash
-python src/main.py
+python run.py
 ```
 
 ## First Use - Try These Commands
 
 ### 1. Fetch Apple Stock Data
 
-1. Run `python src/main.py`
+1. Run `python run.py`
 2. Select option `1` (Fetch Market Data)
 3. Enter ticker: `AAPL`
 4. Select date range: `1` (Last 30 days)
@@ -90,7 +90,7 @@ pip install -r requirements.txt
 cp .env.example .env
 
 # Run the application
-python src/main.py
+python run.py
 ```
 
 ## Troubleshooting

@@ -59,7 +59,7 @@ cp .env.example .env
 
 5. **Verify installation**
 ```bash
-python src/main.py
+python run.py
 ```
 
 ## Usage
@@ -68,7 +68,7 @@ python src/main.py
 
 Run the CLI interface:
 ```bash
-python src/main.py
+python run.py
 ```
 
 ### Fetching Market Data

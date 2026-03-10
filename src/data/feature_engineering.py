@@ -1,12 +1,12 @@
 """
 Feature engineering for technical indicators and derived features.
+Manual implementation without pandas-ta dependency.
 """
 
 import pandas as pd
 import numpy as np
 from loguru import logger
 from typing import Optional, List
-import pandas_ta as ta
 
 from ..utils.exceptions import PreprocessingException
 from ..utils.validators import validate_dataframe
@@ -100,7 +100,7 @@ class FeatureEngineer:
 
     def add_momentum_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Add momentum indicators (RSI, MACD, Stochastic).
+        Add momentum indicators (RSI, MACD, ROC).
 
         Args:
             df: DataFrame with OHLCV data
@@ -111,34 +111,23 @@ class FeatureEngineer:
         df_momentum = df.copy()
 
         # RSI (Relative Strength Index)
-        df_momentum["RSI"] = ta.rsi(df_momentum["Close"], length=14)
+        df_momentum["RSI"] = self._calculate_rsi(df_momentum["Close"], period=14)
 
         # MACD (Moving Average Convergence Divergence)
-        macd = ta.macd(df_momentum["Close"], fast=12, slow=26, signal=9)
-        if macd is not None:
-            df_momentum = pd.concat([df_momentum, macd], axis=1)
-
-        # Stochastic Oscillator
-        stoch = ta.stoch(
-            df_momentum["High"],
-            df_momentum["Low"],
-            df_momentum["Close"],
-            k=14,
-            d=3,
-        )
-        if stoch is not None:
-            df_momentum = pd.concat([df_momentum, stoch], axis=1)
+        macd_data = self._calculate_macd(df_momentum["Close"])
+        df_momentum["MACD"] = macd_data["macd"]
+        df_momentum["MACD_signal"] = macd_data["signal"]
+        df_momentum["MACD_hist"] = macd_data["histogram"]
 
         # Rate of Change (ROC)
-        df_momentum["ROC"] = ta.roc(df_momentum["Close"], length=12)
+        df_momentum["ROC"] = df_momentum["Close"].pct_change(periods=12) * 100
 
-        # Commodity Channel Index (CCI)
-        df_momentum["CCI"] = ta.cci(
-            df_momentum["High"],
-            df_momentum["Low"],
-            df_momentum["Close"],
-            length=20,
+        # Stochastic Oscillator
+        stoch_data = self._calculate_stochastic(
+            df_momentum["High"], df_momentum["Low"], df_momentum["Close"]
         )
+        df_momentum["Stoch_K"] = stoch_data["K"]
+        df_momentum["Stoch_D"] = stoch_data["D"]
 
         logger.debug("Added momentum indicators")
         return df_momentum
@@ -156,28 +145,19 @@ class FeatureEngineer:
         df_vol = df.copy()
 
         # Average True Range (ATR)
-        df_vol["ATR"] = ta.atr(
-            df_vol["High"],
-            df_vol["Low"],
-            df_vol["Close"],
-            length=14,
+        df_vol["ATR"] = self._calculate_atr(
+            df_vol["High"], df_vol["Low"], df_vol["Close"], period=14
         )
 
         # Bollinger Bands
-        bbands = ta.bbands(df_vol["Close"], length=20, std=2)
-        if bbands is not None:
-            df_vol = pd.concat([df_vol, bbands], axis=1)
+        bb_data = self._calculate_bollinger_bands(df_vol["Close"], period=20, std=2)
+        df_vol["BB_upper"] = bb_data["upper"]
+        df_vol["BB_middle"] = bb_data["middle"]
+        df_vol["BB_lower"] = bb_data["lower"]
 
         # Historical Volatility (rolling std of returns)
         returns = df_vol["Close"].pct_change()
         df_vol["HV_20"] = returns.rolling(window=20).std() * np.sqrt(252)  # Annualized
-
-        # True Range
-        df_vol["TR"] = ta.true_range(
-            df_vol["High"],
-            df_vol["Low"],
-            df_vol["Close"],
-        )
 
         logger.debug("Added volatility indicators")
         return df_vol
@@ -195,22 +175,13 @@ class FeatureEngineer:
         df_vol = df.copy()
 
         # On-Balance Volume (OBV)
-        df_vol["OBV"] = ta.obv(df_vol["Close"], df_vol["Volume"])
+        df_vol["OBV"] = self._calculate_obv(df_vol["Close"], df_vol["Volume"])
 
         # Volume Moving Average
         df_vol["Volume_SMA_20"] = df_vol["Volume"].rolling(window=20).mean()
 
         # Volume Ratio
         df_vol["Volume_Ratio"] = df_vol["Volume"] / df_vol["Volume_SMA_20"]
-
-        # Money Flow Index (MFI)
-        df_vol["MFI"] = ta.mfi(
-            df_vol["High"],
-            df_vol["Low"],
-            df_vol["Close"],
-            df_vol["Volume"],
-            length=14,
-        )
 
         logger.debug("Added volume indicators")
         return df_vol
@@ -241,7 +212,7 @@ class FeatureEngineer:
 
     def add_trend_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Add trend indicators (ADX, Supertrend).
+        Add trend indicators (ADX).
 
         Args:
             df: DataFrame with OHLCV data
@@ -252,32 +223,12 @@ class FeatureEngineer:
         df_trend = df.copy()
 
         # Average Directional Index (ADX)
-        adx = ta.adx(
-            df_trend["High"],
-            df_trend["Low"],
-            df_trend["Close"],
-            length=14,
+        adx_data = self._calculate_adx(
+            df_trend["High"], df_trend["Low"], df_trend["Close"], period=14
         )
-        if adx is not None:
-            df_trend = pd.concat([df_trend, adx], axis=1)
-
-        # Supertrend
-        supertrend = ta.supertrend(
-            df_trend["High"],
-            df_trend["Low"],
-            df_trend["Close"],
-            length=10,
-            multiplier=3.0,
-        )
-        if supertrend is not None:
-            df_trend = pd.concat([df_trend, supertrend], axis=1)
-
-        # Parabolic SAR
-        df_trend["PSAR"] = ta.psar(
-            df_trend["High"],
-            df_trend["Low"],
-            df_trend["Close"],
-        )["PSARl_0.02_0.2"]
+        df_trend["ADX"] = adx_data["adx"]
+        df_trend["DI_plus"] = adx_data["di_plus"]
+        df_trend["DI_minus"] = adx_data["di_minus"]
 
         logger.debug("Added trend indicators")
         return df_trend
@@ -312,6 +263,89 @@ class FeatureEngineer:
 
         logger.debug("Added price pattern features")
         return df_patterns
+
+    # Helper methods for indicator calculations
+
+    def _calculate_rsi(self, prices: pd.Series, period: int = 14) -> pd.Series:
+        """Calculate Relative Strength Index."""
+        delta = prices.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi
+
+    def _calculate_macd(
+        self, prices: pd.Series, fast=12, slow=26, signal=9
+    ) -> dict:
+        """Calculate MACD indicator."""
+        ema_fast = prices.ewm(span=fast, adjust=False).mean()
+        ema_slow = prices.ewm(span=slow, adjust=False).mean()
+        macd = ema_fast - ema_slow
+        signal_line = macd.ewm(span=signal, adjust=False).mean()
+        histogram = macd - signal_line
+        return {"macd": macd, "signal": signal_line, "histogram": histogram}
+
+    def _calculate_atr(
+        self, high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14
+    ) -> pd.Series:
+        """Calculate Average True Range."""
+        high_low = high - low
+        high_close = np.abs(high - close.shift())
+        low_close = np.abs(low - close.shift())
+        ranges = pd.concat([high_low, high_close, low_close], axis=1)
+        true_range = ranges.max(axis=1)
+        atr = true_range.rolling(window=period).mean()
+        return atr
+
+    def _calculate_bollinger_bands(
+        self, prices: pd.Series, period: int = 20, std: float = 2
+    ) -> dict:
+        """Calculate Bollinger Bands."""
+        middle = prices.rolling(window=period).mean()
+        std_dev = prices.rolling(window=period).std()
+        upper = middle + (std_dev * std)
+        lower = middle - (std_dev * std)
+        return {"upper": upper, "middle": middle, "lower": lower}
+
+    def _calculate_obv(self, close: pd.Series, volume: pd.Series) -> pd.Series:
+        """Calculate On-Balance Volume."""
+        obv = (np.sign(close.diff()) * volume).fillna(0).cumsum()
+        return obv
+
+    def _calculate_stochastic(
+        self, high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14
+    ) -> dict:
+        """Calculate Stochastic Oscillator."""
+        lowest_low = low.rolling(window=period).min()
+        highest_high = high.rolling(window=period).max()
+        k = 100 * (close - lowest_low) / (highest_high - lowest_low)
+        d = k.rolling(window=3).mean()
+        return {"K": k, "D": d}
+
+    def _calculate_adx(
+        self, high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14
+    ) -> dict:
+        """Calculate Average Directional Index."""
+        # Calculate +DM and -DM
+        high_diff = high.diff()
+        low_diff = -low.diff()
+        
+        plus_dm = high_diff.where((high_diff > low_diff) & (high_diff > 0), 0)
+        minus_dm = low_diff.where((low_diff > high_diff) & (low_diff > 0), 0)
+        
+        # Calculate ATR
+        atr = self._calculate_atr(high, low, close, period)
+        
+        # Calculate +DI and -DI
+        plus_di = 100 * (plus_dm.rolling(window=period).mean() / atr)
+        minus_di = 100 * (minus_dm.rolling(window=period).mean() / atr)
+        
+        # Calculate DX and ADX
+        dx = 100 * np.abs(plus_di - minus_di) / (plus_di + minus_di)
+        adx = dx.rolling(window=period).mean()
+        
+        return {"adx": adx, "di_plus": plus_di, "di_minus": minus_di}
 
     def create_lag_features(
         self,
