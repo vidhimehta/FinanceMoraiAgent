@@ -13,6 +13,7 @@ from loguru import logger
 from typing import Optional
 
 from ..data.sources.yahoo_finance import YahooFinanceSource
+from .commands.forecast_cmd import ForecastCommand
 from ..data.preprocessor import DataPreprocessor
 from ..data.feature_engineering import FeatureEngineer
 from ..core.cache_manager import get_cache_manager
@@ -31,6 +32,7 @@ class CLIMenu:
         self.preprocessor = DataPreprocessor()
         self.feature_engineer = FeatureEngineer()
         self.cache_manager = get_cache_manager()
+        self.forecast_cmd = ForecastCommand(self.console)
 
         logger.info("CLI Menu initialized")
 
@@ -63,7 +65,7 @@ class CLIMenu:
             ("1", "Fetch Market Data", "Download and cache stock data"),
             ("2", "Sentiment Analysis", "[dim](Coming in Phase 3)[/dim]"),
             ("3", "Regime Detection", "[dim](Coming in Phase 4)[/dim]"),
-            ("4", "Generate Forecast", "[dim](Coming in Phase 2)[/dim]"),
+            ("4", "Generate Forecast", "AI-powered price forecasting"),
             ("5", "Run Backtest", "[dim](Coming in Phase 5)[/dim]"),
             ("6", "View Cache Stats", "Check cache status and statistics"),
             ("7", "Settings", "Configure application settings"),
@@ -257,7 +259,7 @@ class CLIMenu:
                 elif choice == "3":
                     self.console.print("\n[yellow]Regime Detection coming in Phase 4[/yellow]")
                 elif choice == "4":
-                    self.console.print("\n[yellow]Forecast Generation coming in Phase 2[/yellow]")
+                    self.forecast_cmd.run_forecast_menu()
                 elif choice == "5":
                     self.console.print("\n[yellow]Backtesting coming in Phase 5[/yellow]")
                 elif choice == "6":
